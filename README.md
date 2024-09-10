@@ -2,7 +2,9 @@
 
 *Generate HDR images using StableDiffusionXL*
 
-## Examples
+## Example
+
+![example-hdr](https://github.com/user-attachments/assets/3c17e4d9-31d3-4983-8c5f-d4f23c44fd3f)
 
 ## Run
 
