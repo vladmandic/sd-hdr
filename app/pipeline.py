@@ -116,6 +116,8 @@ def run(args, prompt):
     seed = args.seed if args.seed >= 0 else int(random.randrange(4294967294))
     log.info(f'Generate: prompt="{prompt}" tokens={len(tokens)} seed={seed}')
     kwargs = {
+        'width': args.width,
+        'height': args.height,
         'prompt_embeds': embeds,
         'pooled_prompt_embeds': pooled,
         'guidance_scale': args.cfg,
