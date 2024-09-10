@@ -50,3 +50,9 @@ options:
 19:23:16-626820 INFO     Generate: prompt="a big tree" tokens=5 seed=816301649
 19:23:20-830487 INFO     Merge: seed=816301649 hdr="tmp/1726010596-hdr.png" ldr="tmp/1726010596-ldr.png" json="tmp/1726010596.json" time=4.01 its=7.48
 ```
+
+## Note
+
+- A lot of optimizations are possible, this is just a quick and dirty script to get started  
+- Prompts file should have one prompt per line  
+- Created filename is simple epoch timestamp
