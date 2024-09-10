@@ -1,0 +1,21 @@
+# extra pip locations
+--extra-index-url https://download.pytorch.org/whl/cu124
+
+# standard
+setuptools==69.5.1
+packaging==24.0
+rich
+opencv-python
+
+# linters
+ruff
+
+# torch
+torch>=2.4.0
+torchvision
+numpy==1.26.4
+safetensors
+diffusers
+transformers
+accelerate
+peft
