@@ -8,6 +8,8 @@ import numpy as np
 import torch
 import diffusers
 from app.logger import log
+from app.utils import calculate_statistics
+
 
 pipe: diffusers.StableDiffusionXLPipeline = None
 dtype = None
@@ -55,7 +57,7 @@ def patch():
 
 
 def load(args):
-    global pipe, dtype, device, generator, exp, timestep, offload # pylint: disable=global-statement
+    global pipe, dtype, device, generator, exp, timestep # pylint: disable=global-statement
     exp = args.exp
     timestep = args.timestep
     if args.dtype == 'fp16' or args.dtype == 'float16':
@@ -196,47 +198,42 @@ def run(args, prompt):
             custom_timesteps = pipe.scheduler.timesteps.clone()
             custom_timesteps = custom_timesteps[custom_timesteps < timestep] # only use timesteps below ts threshold for future runs
             image = decode(latents)
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             images.append(image)
             t2 = time.time()
             if args.save:
                 name = os.path.join(args.output, f'{ts}-{i}.png')
                 cv2.imwrite(name, image)
-                log.debug(f'Image: i={iteration+1}/{iterations} seed={seed} shape={image.shape} name="{name}" time={t2-t1:.2f}')
+                log.debug(f'Image: i={iteration+1}/{iterations} seed={seed} shape={image.shape} name="{name}" time={t2-t1:.2f} stats={calculate_statistics(image)}')
 
         if args.ldr or args.hdr:
             try:
                 align = cv2.createAlignMTB()
-                aligned_images = []
-                for img in images:
-                    aligned = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                    align.process([img], [aligned])
-                    aligned_images.append(aligned)
-                log.debug(f'OpenCV: aligned={[img.shape for img in aligned_images]}')
+                align.process(images, images)
                 merge = cv2.createMergeMertens()
-                hdr = merge.process(aligned_images)
+                hdr = merge.process(images)
                 ldr = np.clip(hdr * 255, 0, 255).astype(np.uint8)
                 hdr = np.clip(hdr * 65535, 0, 65535).astype(np.uint16)
                 its = len(images) * total_steps / (t2 - t0)
-                name_ldr = None
-                name_hdr = None
-                name_json = None
+                name_ldr = os.path.join(args.output, f'{ts}-ldr.png') if args.ldr else None
+                name_hdr = os.path.join(args.output, f'{ts}-hdr.png') if args.hdr else None
+                name_json = os.path.join(args.output, f'{ts}.json') if args.json else None
+                dct = args.__dict__.copy()
+                dct['prompt'] = prompt
+                dct['seed'] = seed
+                dct['ldr'] = calculate_statistics(ldr)
+                dct['hdr'] = calculate_statistics(hdr)
                 if args.ldr:
-                    name_ldr = os.path.join(args.output, f'{ts}-ldr.png')
                     cv2.imwrite(name_ldr, ldr)
                 if args.hdr:
-                    name_hdr = os.path.join(args.output, f'{ts}-hdr.png')
                     cv2.imwrite(name_hdr, hdr)
                 if args.json:
-                    name_json = os.path.join(args.output, f'{ts}.json')
-                    dct = args.__dict__.copy()
-                    dct['prompt'] = prompt
-                    dct['seed'] = seed
-                    json.dumps(dct, indent=4)
                     with open(name_json, 'w', encoding='utf8') as f:
                         f.write(json.dumps(dct, indent=4))
                 log.info(f'Merge: seed={seed} hdr="{name_hdr}" ldr="{name_ldr}" json="{name_json}" time={t2-t0:.2f} total-steps={total_steps} its={its:.2f}')
+                log.debug(f'Stats: hdr={dct["hdr"]} ldr={dct["ldr"]}')
             except cv2.error as e:
                 log.error(f'OpenCV: shapes={[img.shape for img in images]} dtypes={[img.dtype for img in images]} {e}')
                 raise
     mem = dict(torch.cuda.memory_stats())
-    log.debug(f'Memory: peak={mem["active_bytes.all.peak"]} retries={mem["num_alloc_retries"]} oom={mem["num_ooms"]}')
+    log.debug(f'Memory: peak={mem["active_bytes.all.peak"] / 1e9:.2f} retries={mem["num_alloc_retries"]} oom={mem["num_ooms"]}')

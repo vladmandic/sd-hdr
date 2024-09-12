@@ -32,33 +32,24 @@ options:
   --debug              debug log
 ```
 
-> ./hdr.sh --model /mnt/sdxl/TempestV0.1-Artistic.safetensors --prompts prompts.txt --output tmp/ --save --hdr --ldr
+> ./hdr.sh --model /mnt/sdxl/TempestV0.1-Artistic.safetensors --prompts prompts.txt --output tmp/ --save --hdr --ldr --json --debug
 
 ```log
-10:04:00-175852 INFO     HDR start
-10:04:00-177997 INFO     Env: python=3.12.3 platform=Linux bin="/home/vlado/dev/sd-hdr/venv/bin/python" venv="/home/vlado/dev/sd-hdr/venv"
-10:04:00-178744 INFO     Args: Namespace(dtype='bfloat16', device='cuda:0', model='sdxl/TempestV0.1-Artistic.safetensors', width=1024, height=1024, steps=20, seed=-1, cfg=7.0, sampler='EulerAncestralDiscreteScheduler', prompts='prompts.txt', output='tmp', exp=1.0, timestep=200, save=True, hdr=True, ldr=True, json=False, debug=True)
-10:04:00-327286 DEBUG    Device: current=0 cuda=True count=1 name="NVIDIA GeForce RTX 4090"
-10:04:00-328066 INFO     Loading: model="sdxl/TempestV0.1-Artistic.safetensors" dtype="torch.bfloat16" device="cuda:0"
-10:04:03-339978 INFO     Loaded: model="sdxl/TempestV0.1-Artistic.safetensors" time=3.01
-10:04:03-341036 DEBUG    Memory: allocated=8.39 cached=8.66
-10:04:03-343692 DEBUG    Model: unet="torch.bfloat16/cuda:0" vae="torch.bfloat16/cuda:0" te1="torch.bfloat16/cuda:0" te2="cuda:0/cuda:0"
-10:04:03-345122 INFO     Scheduler: sampler=EulerAncestralDiscreteScheduler config=[{'num_train_timesteps': 1000}, {'beta_start': 0.00085}, {'beta_end': 0.012}, {'beta_schedule': 'scaled_linear'}, {'trained_betas': None}, {'prediction_type': 'epsilon'}, {'timestep_spacing': 'leading'}, {'steps_offset': 1}, {'rescale_betas_zero_snr': False}]
-10:04:03-345956 INFO     Sequence: count=1/2
-10:04:03-455445 INFO     Generate: prompt="cute robot walking on a surface of a lake in a tropical forrest" tokens=15 seed=2040646293
-10:04:25-107072 DEBUG    Image: i=1/3 seed=2040646293 shape=(1024, 1024, 3) name="tmp/1726149843-0.png" time=21.62
-10:04:25-748966 DEBUG    Image: i=2/3 seed=2040646293 shape=(1024, 1024, 3) name="tmp/1726149843-1.png" time=0.61
-10:04:26-421777 DEBUG    Image: i=3/3 seed=2040646293 shape=(1024, 1024, 3) name="tmp/1726149843-2.png" time=0.64
-10:04:26-446687 DEBUG    OpenCV: aligned=[(1024, 1024, 3), (1024, 1024, 3), (1024, 1024, 3)]
-10:04:26-583357 INFO     Merge: seed=2040646293 hdr="tmp/1726149843-hdr.png" ldr="tmp/1726149843-ldr.png" json="None" time=22.94 total-steps=28 its=3.66
-10:04:26-584285 INFO     Sequence: count=2/2
-10:04:26-601033 INFO     Generate: prompt="beautiful woman in a long dress walking through a busy city street during sunset" tokens=16 seed=1676172106
-10:04:29-141769 DEBUG    Image: i=1/3 seed=1676172106 shape=(1024, 1024, 3) name="tmp/1726149866-0.png" time=2.51
-10:04:29-788513 DEBUG    Image: i=2/3 seed=1676172106 shape=(1024, 1024, 3) name="tmp/1726149866-1.png" time=0.62
-10:04:30-465556 DEBUG    Image: i=3/3 seed=1676172106 shape=(1024, 1024, 3) name="tmp/1726149866-2.png" time=0.65
-10:04:30-488897 DEBUG    OpenCV: aligned=[(1024, 1024, 3), (1024, 1024, 3), (1024, 1024, 3)]
-10:04:30-621299 INFO     Merge: seed=1676172106 hdr="tmp/1726149866-hdr.png" ldr="tmp/1726149866-ldr.png" json="None" time=3.83 total-steps=28 its=21.91
-10:04:30-622190 INFO     HDR end
+13:43:01-217948 INFO     Env: python=3.12.3 platform=Linux bin="/home/vlado/dev/sd-hdr/venv/bin/python" venv="/home/vlado/dev/sd-hdr/venv"
+13:43:01-218585 INFO     Args: Namespace(dtype='bfloat16', device='cuda:0', model='/mnt/models/stable-diffusion/sdxl/TempestV0.1-Artistic.safetensors', width=1024, height=1024, steps=20, seed=-1, cfg=7.0, sampler='EulerAncestralDiscreteScheduler', prompts='prompts.txt', output='tmp', exp=1.0, timestep=200, save=True, hdr=True, ldr=True, json=True, debug=True, offload=False)
+13:43:01-411016 DEBUG    Device: current=0 cuda=True count=1 name="NVIDIA GeForce RTX 4090"
+13:43:01-411742 INFO     Loading: model="/mnt/models/stable-diffusion/sdxl/TempestV0.1-Artistic.safetensors" dtype="torch.bfloat16" device="cuda:0"
+13:43:04-486064 DEBUG    Memory: allocated=8.39 cached=8.66
+13:43:04-488902 DEBUG    Model: unet="torch.bfloat16/cuda:0" vae="torch.bfloat16/cuda:0" te1="torch.bfloat16/cuda:0" te2="cuda:0/cuda:0"
+13:43:04-490323 INFO     Scheduler: sampler=EulerAncestralDiscreteScheduler config=[...]
+13:43:04-491242 INFO     Sequence: count=1/1
+13:43:04-630333 INFO     Generate: prompt="cute robot walking on a surface of a lake in a tropical forrest during sunrise" tokens=17 seed=4260888451
+13:43:26-396197 DEBUG    Image: i=1/3 seed=4260888451 shape=(1024, 1024, 3) name="tmp/1726162984-0.png" time=21.64 stats={'kurtosis': -0.46951746940612793, 'msd': 1.0425526397739304e-06, 'range': 151.80120849609375, 'entropy': 7.75035285949707}
+13:43:27-177786 DEBUG    Image: i=2/3 seed=4260888451 shape=(1024, 1024, 3) name="tmp/1726162984-1.png" time=0.65 stats={'kurtosis': -0.8761804103851318, 'msd': 1.044339910549752e-06, 'range': 151.80120849609375, 'entropy': 7.835085868835449}
+13:43:27-965057 DEBUG    Image: i=3/3 seed=4260888451 shape=(1024, 1024, 3) name="tmp/1726162984-2.png" time=0.66 stats={'kurtosis': -0.9673399925231934, 'msd': 9.421548270438507e-07, 'range': 151.80120849609375, 'entropy': 7.705101013183594}
+13:43:28-379984 INFO     Merge: seed=4260888451 hdr="tmp/1726162984-hdr.png" ldr="tmp/1726162984-ldr.png" json="tmp/1726162984.json" time=23.20 total-steps=28 its=3.62
+13:43:28-380780 DEBUG    Stats: hdr={'kurtosis': -0.7930150032043457, 'msd': 0.06874074786901474, 'range': 199.99986267089844, 'entropy': 15.490011215209961} ldr={'kurtosis': -0.7899765968322754, 'msd': 1.0418782494525658e-06, 'range': 151.80120849609375, 'entropy': 7.807065963745117}
+13:43:33-204780 DEBUG    Memory: peak=9.88 retries=0 oom=0
 ```
 
 ## Note
