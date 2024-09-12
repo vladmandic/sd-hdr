@@ -113,7 +113,7 @@ def callback(p, step: int, ts: int, kwargs: dict): # pylint: disable=unused-argu
         return channel
 
     latents = kwargs.get('latents', None)
-    if latents is not None and ts < timestep:
+    if iteration > 0:
         for i in range(latents.shape[0]):
             latents[i] = exp_correction(latents[i])
     kwargs['latents'] = latents
@@ -132,14 +132,18 @@ def run(args, prompt):
     log.debug(f"Memory cached: {torch.cuda.memory_reserved(0) / 1e9:.2f} GB")
     
     # Check if the pipe is on the correct device
-    # log.debug(f"Pipe device: {next(pipe.parameters()).device}")
     log.debug(f"UNet device: {pipe.unet.device}")
     log.debug(f"VAE device: {pipe.vae.device}")
     log.debug(f"Text Encoder device: {pipe.text_encoder.device}")
-    
 
     tokens, embeds, pooled = encode_prompt(prompt)
     seed = args.seed if args.seed >= 0 else int(random.randrange(4294967294))
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    generator.manual_seed(seed)
+
     log.info(f'Generate: prompt="{prompt}" tokens={len(tokens)} seed={seed}')
     
     hdr_target_step = 2
@@ -165,8 +169,6 @@ def run(args, prompt):
         t0 = time.time()
 
         # First full generation
-        generator.manual_seed(seed)
-        
         # Modify the pipeline to capture intermediate latents
         original_step_function = pipe.scheduler.step
         latents_history = []
@@ -183,7 +185,7 @@ def run(args, prompt):
         pipe.scheduler.step = original_step_function
 
         latents_at_save_step = latents_history[save_step]
-        scheduler_state_at_save_step = pipe.scheduler.config.copy()
+        original_timesteps = pipe.scheduler.timesteps.clone()
 
         for i in range(3):
             iteration = i
@@ -192,8 +194,10 @@ def run(args, prompt):
             if i == 0:
                 current_latents = latents
             else:
-                pipe.scheduler = type(pipe.scheduler).from_config(scheduler_state_at_save_step)
                 current_latents = latents_at_save_step.clone()
+                # Set the correct timestep when resuming
+                timestep = original_timesteps[save_step]
+                pipe.scheduler._step_index = save_step
                 # Run only the last steps
                 current_kwargs = kwargs.copy()
                 current_kwargs['num_inference_steps'] = hdr_target_step
@@ -229,9 +233,14 @@ def run(args, prompt):
         if args.ldr or args.hdr:
             try:
                 align = cv2.createAlignMTB()
-                align.process(images, images)
+                aligned_images = []
+                for img in images:
+                    aligned = img.copy()
+                    align.process([img], [aligned])
+                    aligned_images.append(aligned)
+                log.debug(f"Aligned image shapes: {[img.shape for img in aligned_images]}")
                 merge = cv2.createMergeMertens()
-                hdr = merge.process(images)
+                hdr = merge.process(aligned_images)
                 ldr = np.clip(hdr * 255, 0, 255).astype(np.uint8)
                 hdr = np.clip(hdr * 65535, 0, 65535).astype(np.uint16)
                 its = len(images) * args.steps / (t2 - t0)
