@@ -9,7 +9,6 @@ import torch
 import diffusers
 from app.logger import log
 
-
 pipe: diffusers.StableDiffusionXLPipeline = None
 dtype = None
 device = None
@@ -22,14 +21,25 @@ exp = 0.0
 
 def set_sampler(args):
     sampler = getattr(diffusers, args.sampler, None)
-    keys = inspect.signature(sampler, follow_wrapped=True).parameters.keys()
-    config = {}
-    for k, v in pipe.scheduler.config.items():
-        if k in keys and not k.startswith('_'):
-            config[k] = v
-    pipe.scheduler = sampler.from_config(config)
-    config = [{ k: v } for k, v in pipe.scheduler.config.items() if not k.startswith('_')]
-    log.info(f'Sampler: {pipe.scheduler.__class__} config={config}')
+
+    if sampler is None:
+        log.warning(f"Invalid sampler: {args.sampler}. The current scheduler will be kept.")
+        log.info(f"Current scheduler: {pipe.scheduler.__class__.__name__}")
+        return
+
+    try:
+        keys = inspect.signature(sampler, follow_wrapped=True).parameters.keys()
+        config = {}
+        for k, v in pipe.scheduler.config.items():
+            if k in keys and not k.startswith('_'):
+                config[k] = v
+        pipe.scheduler = sampler.from_config(config)
+        log.info(f'Sampler successfully set: {pipe.scheduler.__class__.__name__}')
+        config = [{ k: v } for k, v in pipe.scheduler.config.items() if not k.startswith('_')]
+        log.info(f'Sampler config: {config}')
+    except Exception as e:
+        log.error(f"Error setting sampler: {e}. The current scheduler will be kept.")
+        log.info(f"Current scheduler: {pipe.scheduler.__class__.__name__}")
 
 
 def load(args):
@@ -103,7 +113,7 @@ def callback(p, step: int, ts: int, kwargs: dict): # pylint: disable=unused-argu
         return channel
 
     latents = kwargs.get('latents', None)
-    if latents is not None and ts < timestep:
+    if iteration > 0:
         for i in range(latents.shape[0]):
             latents[i] = exp_correction(latents[i])
     kwargs['latents'] = latents
@@ -111,10 +121,34 @@ def callback(p, step: int, ts: int, kwargs: dict): # pylint: disable=unused-argu
 
 
 def run(args, prompt):
-    global iteration # pylint: disable=global-statement
+    global iteration, timestep # pylint: disable=global-statement
+
+    # Debug information about GPU usage
+    log.debug(f"CUDA available: {torch.cuda.is_available()}")
+    log.debug(f"Current device: {torch.cuda.current_device()}")
+    log.debug(f"Device count: {torch.cuda.device_count()}")
+    log.debug(f"Device name: {torch.cuda.get_device_name(0)}")
+    log.debug(f"Memory allocated: {torch.cuda.memory_allocated(0) / 1e9:.2f} GB")
+    log.debug(f"Memory cached: {torch.cuda.memory_reserved(0) / 1e9:.2f} GB")
+    
+    # Check if the pipe is on the correct device
+    log.debug(f"UNet device: {pipe.unet.device}")
+    log.debug(f"VAE device: {pipe.vae.device}")
+    log.debug(f"Text Encoder device: {pipe.text_encoder.device}")
+
     tokens, embeds, pooled = encode_prompt(prompt)
     seed = args.seed if args.seed >= 0 else int(random.randrange(4294967294))
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    generator.manual_seed(seed)
+
     log.info(f'Generate: prompt="{prompt}" tokens={len(tokens)} seed={seed}')
+    
+    hdr_target_step = 2
+    save_step = args.steps - hdr_target_step
+
     kwargs = {
         'width': args.width,
         'height': args.height,
@@ -124,51 +158,112 @@ def run(args, prompt):
         'num_inference_steps': args.steps,
         'num_images_per_prompt': 1,
         'generator': generator,
-        'output_type': 'np',
+        'output_type': 'latent',
         'return_dict': False,
         'callback_on_step_end': callback,
     }
+
     with torch.inference_mode():
         ts = int(time.time())
         images = []
         t0 = time.time()
-        for i in range(3): # TODO use set_timesteps to run only last two steps instead of entire sequence
+
+        # First full generation
+        # Modify the pipeline to capture intermediate latents
+        original_step_function = pipe.scheduler.step
+        latents_history = []
+
+        def step_with_capture(model_output, timestep, sample, **kwargs):
+            latents_history.append(sample.clone())
+            return original_step_function(model_output, timestep, sample, **kwargs)
+
+        pipe.scheduler.step = step_with_capture
+
+        latents = pipe(**kwargs)[0]
+        
+        # Restore original step function
+        pipe.scheduler.step = original_step_function
+
+        latents_at_save_step = latents_history[save_step]
+        original_timesteps = pipe.scheduler.timesteps.clone()
+
+        for i in range(3):
             iteration = i
-            generator.manual_seed(seed)
             t1 = time.time()
-            image = pipe(**kwargs)[0][0]
-            t2 = time.time()
-            image = (255 * image).astype(np.uint8)
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+            if i == 0:
+                current_latents = latents
+            else:
+                current_latents = latents_at_save_step.clone()
+                # Set the correct timestep when resuming
+                timestep = original_timesteps[save_step]
+                pipe.scheduler._step_index = save_step
+                # Run only the last steps
+                current_kwargs = kwargs.copy()
+                current_kwargs['num_inference_steps'] = hdr_target_step
+                current_kwargs['latents'] = current_latents
+                current_latents = pipe(**current_kwargs)[0]
+
+            # Decode latents to image
+            image = pipe.vae.decode(current_latents / pipe.vae.config.scaling_factor, return_dict=False)[0]
+            log.debug(f"Shape after VAE decode: {image.shape}")
+
+            image = image.squeeze(0).permute(1, 2, 0)
+            log.debug(f"Shape after permute: {image.shape}")
+
+            image = (image / 2 + 0.5).clamp(0, 1)
+            image = (255 * image).float().cpu().numpy()
+            log.debug(f"Shape after numpy conversion: {image.shape}")
+
+            image = image.astype(np.uint8)
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+            # image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            log.debug(f"Final image shape: {image.shape}")
+            
             images.append(image)
+
+            t2 = time.time()
+
             if args.save:
                 name = os.path.join(args.output, f'{ts}-{i}.png')
                 cv2.imwrite(name, image)
                 its = args.steps / (t2 - t1)
                 log.debug(f'Image: i={iteration+1}/{iterations} seed={seed} shape={image.shape} name="{name}" time={t2-t1:.2f} its={its:.2f}')
+
         if args.ldr or args.hdr:
-            align = cv2.createAlignMTB()
-            align.process(images, images)
-            merge = cv2.createMergeMertens()
-            hdr = merge.process(images)
-            ldr = np.clip(hdr * 255, 0, 255).astype(np.uint8)
-            hdr = np.clip(hdr * 65535, 0, 65535).astype(np.uint16)
-            its = len(images) * args.steps / (t2 - t0)
-            name_ldr = None
-            name_hdr = None
-            name_json = None
-            if args.ldr:
-                name_ldr = os.path.join(args.output, f'{ts}-ldr.png')
-                cv2.imwrite(name_ldr, ldr)
-            if args.hdr:
-                name_hdr = os.path.join(args.output, f'{ts}-hdr.png')
-                cv2.imwrite(name_hdr, hdr)
-            if args.json:
-                name_json = os.path.join(args.output, f'{ts}.json')
-                dct = args.__dict__.copy()
-                dct['prompt'] = prompt
-                dct['seed'] = seed
-                json.dumps(dct, indent=4)
-                with open(name_json, 'w', encoding='utf8') as f:
-                    f.write(json.dumps(dct, indent=4))
-            log.info(f'Merge: seed={seed} hdr="{name_hdr}" ldr="{name_ldr}" json="{name_json}" time={t2-t0:.2f} its={its:.2f}')
+            try:
+                align = cv2.createAlignMTB()
+                aligned_images = []
+                for img in images:
+                    aligned = img.copy()
+                    align.process([img], [aligned])
+                    aligned_images.append(aligned)
+                log.debug(f"Aligned image shapes: {[img.shape for img in aligned_images]}")
+                merge = cv2.createMergeMertens()
+                hdr = merge.process(aligned_images)
+                ldr = np.clip(hdr * 255, 0, 255).astype(np.uint8)
+                hdr = np.clip(hdr * 65535, 0, 65535).astype(np.uint16)
+                its = len(images) * args.steps / (t2 - t0)
+                name_ldr = None
+                name_hdr = None
+                name_json = None
+                if args.ldr:
+                    name_ldr = os.path.join(args.output, f'{ts}-ldr.png')
+                    cv2.imwrite(name_ldr, ldr)
+                if args.hdr:
+                    name_hdr = os.path.join(args.output, f'{ts}-hdr.png')
+                    cv2.imwrite(name_hdr, hdr)
+                if args.json:
+                    name_json = os.path.join(args.output, f'{ts}.json')
+                    dct = args.__dict__.copy()
+                    dct['prompt'] = prompt
+                    dct['seed'] = seed
+                    json.dumps(dct, indent=4)
+                    with open(name_json, 'w', encoding='utf8') as f:
+                        f.write(json.dumps(dct, indent=4))
+                log.info(f'Merge: seed={seed} hdr="{name_hdr}" ldr="{name_ldr}" json="{name_json}" time={t2-t0:.2f} its={its:.2f}')
+            except cv2.error as e:
+                log.error(f"OpenCV error during alignment or merging: {str(e)}")
+                log.debug(f"Image shapes: {[img.shape for img in images]}")
+                log.debug(f"Image dtypes: {[img.dtype for img in images]}")
+                raise
