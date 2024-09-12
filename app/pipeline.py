@@ -55,7 +55,7 @@ def patch():
 
 
 def load(args):
-    global pipe, dtype, device, generator, exp, timestep # pylint: disable=global-statement
+    global pipe, dtype, device, generator, exp, timestep, offload # pylint: disable=global-statement
     exp = args.exp
     timestep = args.timestep
     if args.dtype == 'fp16' or args.dtype == 'float16':
@@ -99,9 +99,11 @@ def load(args):
     pipe.fuse_qkv_projections()
     pipe.unet.eval()
     pipe.vae.eval()
+    if args.offload:
+        pipe.enable_model_cpu_offload(device=device)
     t1 = time.time()
     log.info(f'Loaded: model="{args.model}" time={t1-t0:.2f}')
-    log.debug(f'Memory: allocated={torch.cuda.memory_allocated(0) / 1e9:.2f} cached={torch.cuda.memory_reserved(0) / 1e9:.2f}')
+    log.debug(f'Memory: allocated={torch.cuda.memory_allocated() / 1e9:.2f} cached={torch.cuda.memory_reserved() / 1e9:.2f}')
     log.debug(f'Model: unet="{pipe.unet.dtype}/{pipe.unet.device}" vae="{pipe.vae.dtype}/{pipe.vae.device}" te1="{pipe.text_encoder.dtype}/{pipe.text_encoder.device}" te2="{pipe.text_encoder_2.device}/{pipe.text_encoder_2.device}"')
     set_sampler(args)
 
@@ -120,7 +122,7 @@ def encode_prompt(prompt):
         do_classifier_free_guidance=True,
         clip_skip=0,
     )
-    return tokens, prompt_embeds, pooled_prompt_embeds
+    return tokens, prompt_embeds.to(device), pooled_prompt_embeds.to(device)
 
 
 def callback(p, step: int, ts: int, kwargs: dict): # pylint: disable=unused-argument
@@ -161,6 +163,7 @@ def run(args, prompt):
         log.error('Model: not loaded')
         return
     global iteration, latent, custom_timesteps, total_steps  # pylint: disable=global-statement
+    torch.cuda.reset_peak_memory_stats()
     latent = None
     total_steps = 0
     tokens, embeds, pooled = encode_prompt(prompt)
@@ -235,3 +238,5 @@ def run(args, prompt):
             except cv2.error as e:
                 log.error(f'OpenCV: shapes={[img.shape for img in images]} dtypes={[img.dtype for img in images]} {e}')
                 raise
+    mem = dict(torch.cuda.memory_stats())
+    log.debug(f'Memory: peak={mem["active_bytes.all.peak"]} retries={mem["num_alloc_retries"]} oom={mem["num_ooms"]}')

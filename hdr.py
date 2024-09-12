@@ -34,6 +34,7 @@ if __name__ == '__main__':
     parser.add_argument('--ldr', action='store_true', help='create 8bpc hdr image')
     parser.add_argument('--json', action='store_true', help='save params to json')
     parser.add_argument('--debug', action='store_true', help='debug log')
+    parser.add_argument('--offload', action='store_true', help='offload model components')
     args = parser.parse_args()
     if args.debug:
         log.setLevel(logging.DEBUG)
