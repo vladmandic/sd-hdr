@@ -12,21 +12,22 @@ from app.logger import log
 pipe: diffusers.StableDiffusionXLPipeline = None
 dtype = None
 device = None
-generator = None
-iteration = 0
-iterations = 3
-timestep = 0
-exp = 0.0
+generator = None # torch generator
+iterations = 3 # run dark/normal/light
+timestep = 0 # from args.timestep
+exp = 0.0 # from args.exp
+iteration = 0 # counter
+latent = None # saved latent
+custom_timesteps = None # custom timesteps
+total_steps = 0 # counter for total steps
 
 
 def set_sampler(args):
     sampler = getattr(diffusers, args.sampler, None)
-
     if sampler is None:
-        log.warning(f"Invalid sampler: {args.sampler}. The current scheduler will be kept.")
-        log.info(f"Current scheduler: {pipe.scheduler.__class__.__name__}")
+        log.warning(f'Scheduler: sampler={args.sampler} invalid')
+        log.info(f'Scheduler: current={pipe.scheduler.__class__.__name__}')
         return
-
     try:
         keys = inspect.signature(sampler, follow_wrapped=True).parameters.keys()
         config = {}
@@ -34,12 +35,23 @@ def set_sampler(args):
             if k in keys and not k.startswith('_'):
                 config[k] = v
         pipe.scheduler = sampler.from_config(config)
-        log.info(f'Sampler successfully set: {pipe.scheduler.__class__.__name__}')
         config = [{ k: v } for k, v in pipe.scheduler.config.items() if not k.startswith('_')]
-        log.info(f'Sampler config: {config}')
+        log.info(f'Scheduler: sampler={pipe.scheduler.__class__.__name__} config={config}')
     except Exception as e:
-        log.error(f"Error setting sampler: {e}. The current scheduler will be kept.")
-        log.info(f"Current scheduler: {pipe.scheduler.__class__.__name__}")
+        log.error(f'Scheduler: {e}')
+        log.info(f'Scheduler: current={pipe.scheduler.__class__.__name__}')
+
+
+def patch():
+    def retrieve_timesteps(scheduler, num_inference_steps, device, timesteps, sigmas, **kwargs): # pylint: disable=redefined-outer-name
+        if custom_timesteps is None:
+            return orig_retrieve_timesteps(scheduler, num_inference_steps, device, timesteps, sigmas, **kwargs)
+        else:
+            orig_retrieve_timesteps(scheduler, num_inference_steps, device, timesteps, sigmas, **kwargs) # run original
+            return custom_timesteps, len(custom_timesteps) # but return reduced timesteps
+
+    orig_retrieve_timesteps = diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl.retrieve_timesteps
+    diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl.retrieve_timesteps = retrieve_timesteps
 
 
 def load(args):
@@ -52,6 +64,7 @@ def load(args):
         dtype = torch.bfloat16
     else:
         dtype = torch.float32
+    patch()
     torch.set_default_dtype(dtype)
     torch.set_grad_enabled(False)
     torch.backends.cudnn.benchmark = True
@@ -65,6 +78,12 @@ def load(args):
     # os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
     device = torch.device(args.device)
     generator = torch.Generator(device=device)
+    if not args.model.lower().endswith('.safetensors'):
+        args.model += '.safetensors'
+    if not os.path.exists(args.model):
+        log.error(f'Model: path="{args.model}" not found')
+        return
+    log.debug(f'Device: current={torch.cuda.current_device()} cuda={torch.cuda.is_available()} count={torch.cuda.device_count()} name="{torch.cuda.get_device_name(0)}"')
     log.info(f'Loading: model="{args.model}" dtype="{dtype}" device="{device}"')
     t0 = time.time()
     kwargs = {
@@ -82,6 +101,8 @@ def load(args):
     pipe.vae.eval()
     t1 = time.time()
     log.info(f'Loaded: model="{args.model}" time={t1-t0:.2f}')
+    log.debug(f'Memory: allocated={torch.cuda.memory_allocated(0) / 1e9:.2f} cached={torch.cuda.memory_reserved(0) / 1e9:.2f}')
+    log.debug(f'Model: unet="{pipe.unet.dtype}/{pipe.unet.device}" vae="{pipe.vae.dtype}/{pipe.vae.device}" te1="{pipe.text_encoder.dtype}/{pipe.text_encoder.device}" te2="{pipe.text_encoder_2.device}/{pipe.text_encoder_2.device}"')
     set_sampler(args)
 
 
@@ -112,43 +133,40 @@ def callback(p, step: int, ts: int, kwargs: dict): # pylint: disable=unused-argu
         channel[0:1] = center_tensor(channel[0:1], channel_shift=0.0, full_shift=1.0, offset=exp * (iteration -1) / 2)
         return channel
 
-    latents = kwargs.get('latents', None)
-    if iteration > 0:
+    global latent, total_steps # pylint: disable=global-statement
+    total_steps += 1
+    latents = kwargs.get('latents', None) # if we have latent stored, just use it and ignore what model returns
+    if custom_timesteps is not None and latent is not None and ts == custom_timesteps[0]: # replace latent with stored one
+        latents = latent.clone()
+    if ts < timestep:
+        if latent is None:
+            latent = latents.clone() # store latent first time we get here
         for i in range(latents.shape[0]):
             latents[i] = exp_correction(latents[i])
     kwargs['latents'] = latents
     return kwargs
 
 
+def decode(latents):
+    image = pipe.vae.decode(latents / pipe.vae.config.scaling_factor, return_dict=False)[0]
+    image = image.squeeze(0).permute(1, 2, 0)
+    image = (image / 2 + 0.5).clamp(0, 1)
+    image = (255 * image).float().cpu().numpy()
+    image = image.astype(np.uint8)
+    return image
+
+
 def run(args, prompt):
-    global iteration, timestep # pylint: disable=global-statement
-
-    # Debug information about GPU usage
-    log.debug(f"CUDA available: {torch.cuda.is_available()}")
-    log.debug(f"Current device: {torch.cuda.current_device()}")
-    log.debug(f"Device count: {torch.cuda.device_count()}")
-    log.debug(f"Device name: {torch.cuda.get_device_name(0)}")
-    log.debug(f"Memory allocated: {torch.cuda.memory_allocated(0) / 1e9:.2f} GB")
-    log.debug(f"Memory cached: {torch.cuda.memory_reserved(0) / 1e9:.2f} GB")
-    
-    # Check if the pipe is on the correct device
-    log.debug(f"UNet device: {pipe.unet.device}")
-    log.debug(f"VAE device: {pipe.vae.device}")
-    log.debug(f"Text Encoder device: {pipe.text_encoder.device}")
-
+    if pipe is None:
+        log.error('Model: not loaded')
+        return
+    global iteration, latent, custom_timesteps, total_steps  # pylint: disable=global-statement
+    latent = None
+    total_steps = 0
     tokens, embeds, pooled = encode_prompt(prompt)
     seed = args.seed if args.seed >= 0 else int(random.randrange(4294967294))
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-    generator.manual_seed(seed)
-
+    custom_timesteps = None
     log.info(f'Generate: prompt="{prompt}" tokens={len(tokens)} seed={seed}')
-    
-    hdr_target_step = 2
-    save_step = args.steps - hdr_target_step
-
     kwargs = {
         'width': args.width,
         'height': args.height,
@@ -162,88 +180,40 @@ def run(args, prompt):
         'return_dict': False,
         'callback_on_step_end': callback,
     }
-
     with torch.inference_mode():
         ts = int(time.time())
         images = []
         t0 = time.time()
 
-        # First full generation
-        # Modify the pipeline to capture intermediate latents
-        original_step_function = pipe.scheduler.step
-        latents_history = []
-
-        def step_with_capture(model_output, timestep, sample, **kwargs):
-            latents_history.append(sample.clone())
-            return original_step_function(model_output, timestep, sample, **kwargs)
-
-        pipe.scheduler.step = step_with_capture
-
-        latents = pipe(**kwargs)[0]
-        
-        # Restore original step function
-        pipe.scheduler.step = original_step_function
-
-        latents_at_save_step = latents_history[save_step]
-        original_timesteps = pipe.scheduler.timesteps.clone()
-
-        for i in range(3):
+        for i in range(iterations):
             iteration = i
             t1 = time.time()
-
-            if i == 0:
-                current_latents = latents
-            else:
-                current_latents = latents_at_save_step.clone()
-                # Set the correct timestep when resuming
-                timestep = original_timesteps[save_step]
-                pipe.scheduler._step_index = save_step
-                # Run only the last steps
-                current_kwargs = kwargs.copy()
-                current_kwargs['num_inference_steps'] = hdr_target_step
-                current_kwargs['latents'] = current_latents
-                current_latents = pipe(**current_kwargs)[0]
-
-            # Decode latents to image
-            image = pipe.vae.decode(current_latents / pipe.vae.config.scaling_factor, return_dict=False)[0]
-            log.debug(f"Shape after VAE decode: {image.shape}")
-
-            image = image.squeeze(0).permute(1, 2, 0)
-            log.debug(f"Shape after permute: {image.shape}")
-
-            image = (image / 2 + 0.5).clamp(0, 1)
-            image = (255 * image).float().cpu().numpy()
-            log.debug(f"Shape after numpy conversion: {image.shape}")
-
-            image = image.astype(np.uint8)
-            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-            # image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            log.debug(f"Final image shape: {image.shape}")
-            
+            generator.manual_seed(seed)
+            latents = pipe(**kwargs)[0]
+            custom_timesteps = pipe.scheduler.timesteps.clone()
+            custom_timesteps = custom_timesteps[custom_timesteps < timestep] # only use timesteps below ts threshold for future runs
+            image = decode(latents)
             images.append(image)
-
             t2 = time.time()
-
             if args.save:
                 name = os.path.join(args.output, f'{ts}-{i}.png')
                 cv2.imwrite(name, image)
-                its = args.steps / (t2 - t1)
-                log.debug(f'Image: i={iteration+1}/{iterations} seed={seed} shape={image.shape} name="{name}" time={t2-t1:.2f} its={its:.2f}')
+                log.debug(f'Image: i={iteration+1}/{iterations} seed={seed} shape={image.shape} name="{name}" time={t2-t1:.2f}')
 
         if args.ldr or args.hdr:
             try:
                 align = cv2.createAlignMTB()
                 aligned_images = []
                 for img in images:
-                    aligned = img.copy()
+                    aligned = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                     align.process([img], [aligned])
                     aligned_images.append(aligned)
-                log.debug(f"Aligned image shapes: {[img.shape for img in aligned_images]}")
+                log.debug(f'OpenCV: aligned={[img.shape for img in aligned_images]}')
                 merge = cv2.createMergeMertens()
                 hdr = merge.process(aligned_images)
                 ldr = np.clip(hdr * 255, 0, 255).astype(np.uint8)
                 hdr = np.clip(hdr * 65535, 0, 65535).astype(np.uint16)
-                its = len(images) * args.steps / (t2 - t0)
+                its = len(images) * total_steps / (t2 - t0)
                 name_ldr = None
                 name_hdr = None
                 name_json = None
@@ -261,9 +231,7 @@ def run(args, prompt):
                     json.dumps(dct, indent=4)
                     with open(name_json, 'w', encoding='utf8') as f:
                         f.write(json.dumps(dct, indent=4))
-                log.info(f'Merge: seed={seed} hdr="{name_hdr}" ldr="{name_ldr}" json="{name_json}" time={t2-t0:.2f} its={its:.2f}')
+                log.info(f'Merge: seed={seed} hdr="{name_hdr}" ldr="{name_ldr}" json="{name_json}" time={t2-t0:.2f} total-steps={total_steps} its={its:.2f}')
             except cv2.error as e:
-                log.error(f"OpenCV error during alignment or merging: {str(e)}")
-                log.debug(f"Image shapes: {[img.shape for img in images]}")
-                log.debug(f"Image dtypes: {[img.dtype for img in images]}")
+                log.error(f'OpenCV: shapes={[img.shape for img in images]} dtypes={[img.dtype for img in images]} {e}')
                 raise

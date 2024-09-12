@@ -24,7 +24,7 @@ if __name__ == '__main__':
     parser.add_argument('--steps', type=int, default=20, help='sampling steps')
     parser.add_argument('--seed', type=int, default=-1, help='noise seed')
     parser.add_argument('--cfg', type=float, default=7.0, help='cfg scale')
-    parser.add_argument('--sampler', type=str, default='UniPCMultistepScheduler', help='sd sampler')
+    parser.add_argument('--sampler', type=str, default='EulerAncestralDiscreteScheduler', help='sd sampler')
     parser.add_argument('--prompts', type=str, required=True, help='prompts file')
     parser.add_argument('--output', type=str, required=True, help='output folder')
     parser.add_argument('--exp', type=float, default=1.0, help='exposure correction')
@@ -36,7 +36,7 @@ if __name__ == '__main__':
     parser.add_argument('--debug', action='store_true', help='debug log')
     args = parser.parse_args()
     if args.debug:
-        log.setLevel(logging.debug)
+        log.setLevel(logging.DEBUG)
     log.info('HDR start')
     log.info(f'Env: python={platform.python_version()} platform={platform.system()} bin="{sys.executable}" venv="{sys.prefix}"')
     log.info(f'Args: {args}')

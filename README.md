@@ -35,20 +35,30 @@ options:
 > ./hdr.sh --model /mnt/sdxl/TempestV0.1-Artistic.safetensors --prompts prompts.txt --output tmp/ --save --hdr --ldr
 
 ```log
-19:22:38-716570 INFO     Env: python=3.12.3 platform=Linux bin="/home/vlado/dev/sd-hdr/venv/bin/python3" venv="/home/vlado/dev/sd-hdr/venv"
-19:22:38-717295 INFO     Args: Namespace(dtype='bfloat16', device='cuda:0', model='/mnt/sdxl/TempestV0.1-Artistic.safetensors', width=1024, height=1024, steps=10, seed=-1, cfg=7.0, sampler='UniPCMultistepScheduler', prompts='prompts.txt', output='tmp/', exp=1.0, timestep=200, save=True, hdr=True, ldr=True, json=True, debug=False)
-19:22:38-816148 INFO     Loading: model="/mnt/sdxl/TempestV0.1-Artistic.safetensors" dtype="torch.bfloat16" device="cuda:0"
-19:22:48-995316 INFO     Loaded: model="/mnt/sdxl/TempestV0.1-Artistic.safetensors" time=10.18
-19:22:48-998194 INFO     Sampler: <class 'diffusers.schedulers.scheduling_unipc_multistep.UniPCMultistepScheduler'> config=[...]
-19:22:48-999942 INFO     Sequence: count=1/3
-19:22:49-197405 INFO     Generate: prompt="cute robot" tokens=4 seed=1787489337
-19:23:12-404111 INFO     Merge: seed=1787489337 hdr="tmp/1726010569-hdr.png" ldr="tmp/1726010569-ldr.png" json="tmp/1726010569.json" time=23.02 its=1.30
-19:23:12-404988 INFO     Sequence: count=2/3
-19:23:12-419093 INFO     Generate: prompt="airplane in the sky" tokens=6 seed=858719668
-19:23:16-612599 INFO     Merge: seed=858719668 hdr="tmp/1726010592-hdr.png" ldr="tmp/1726010592-ldr.png" json="tmp/1726010592.json" time=4.02 its=7.46
-19:23:16-613379 INFO     Sequence: count=3/3
-19:23:16-626820 INFO     Generate: prompt="a big tree" tokens=5 seed=816301649
-19:23:20-830487 INFO     Merge: seed=816301649 hdr="tmp/1726010596-hdr.png" ldr="tmp/1726010596-ldr.png" json="tmp/1726010596.json" time=4.01 its=7.48
+10:04:00-175852 INFO     HDR start
+10:04:00-177997 INFO     Env: python=3.12.3 platform=Linux bin="/home/vlado/dev/sd-hdr/venv/bin/python" venv="/home/vlado/dev/sd-hdr/venv"
+10:04:00-178744 INFO     Args: Namespace(dtype='bfloat16', device='cuda:0', model='sdxl/TempestV0.1-Artistic.safetensors', width=1024, height=1024, steps=20, seed=-1, cfg=7.0, sampler='EulerAncestralDiscreteScheduler', prompts='prompts.txt', output='tmp', exp=1.0, timestep=200, save=True, hdr=True, ldr=True, json=False, debug=True)
+10:04:00-327286 DEBUG    Device: current=0 cuda=True count=1 name="NVIDIA GeForce RTX 4090"
+10:04:00-328066 INFO     Loading: model="sdxl/TempestV0.1-Artistic.safetensors" dtype="torch.bfloat16" device="cuda:0"
+10:04:03-339978 INFO     Loaded: model="sdxl/TempestV0.1-Artistic.safetensors" time=3.01
+10:04:03-341036 DEBUG    Memory: allocated=8.39 cached=8.66
+10:04:03-343692 DEBUG    Model: unet="torch.bfloat16/cuda:0" vae="torch.bfloat16/cuda:0" te1="torch.bfloat16/cuda:0" te2="cuda:0/cuda:0"
+10:04:03-345122 INFO     Scheduler: sampler=EulerAncestralDiscreteScheduler config=[{'num_train_timesteps': 1000}, {'beta_start': 0.00085}, {'beta_end': 0.012}, {'beta_schedule': 'scaled_linear'}, {'trained_betas': None}, {'prediction_type': 'epsilon'}, {'timestep_spacing': 'leading'}, {'steps_offset': 1}, {'rescale_betas_zero_snr': False}]
+10:04:03-345956 INFO     Sequence: count=1/2
+10:04:03-455445 INFO     Generate: prompt="cute robot walking on a surface of a lake in a tropical forrest" tokens=15 seed=2040646293
+10:04:25-107072 DEBUG    Image: i=1/3 seed=2040646293 shape=(1024, 1024, 3) name="tmp/1726149843-0.png" time=21.62
+10:04:25-748966 DEBUG    Image: i=2/3 seed=2040646293 shape=(1024, 1024, 3) name="tmp/1726149843-1.png" time=0.61
+10:04:26-421777 DEBUG    Image: i=3/3 seed=2040646293 shape=(1024, 1024, 3) name="tmp/1726149843-2.png" time=0.64
+10:04:26-446687 DEBUG    OpenCV: aligned=[(1024, 1024, 3), (1024, 1024, 3), (1024, 1024, 3)]
+10:04:26-583357 INFO     Merge: seed=2040646293 hdr="tmp/1726149843-hdr.png" ldr="tmp/1726149843-ldr.png" json="None" time=22.94 total-steps=28 its=3.66
+10:04:26-584285 INFO     Sequence: count=2/2
+10:04:26-601033 INFO     Generate: prompt="beautiful woman in a long dress walking through a busy city street during sunset" tokens=16 seed=1676172106
+10:04:29-141769 DEBUG    Image: i=1/3 seed=1676172106 shape=(1024, 1024, 3) name="tmp/1726149866-0.png" time=2.51
+10:04:29-788513 DEBUG    Image: i=2/3 seed=1676172106 shape=(1024, 1024, 3) name="tmp/1726149866-1.png" time=0.62
+10:04:30-465556 DEBUG    Image: i=3/3 seed=1676172106 shape=(1024, 1024, 3) name="tmp/1726149866-2.png" time=0.65
+10:04:30-488897 DEBUG    OpenCV: aligned=[(1024, 1024, 3), (1024, 1024, 3), (1024, 1024, 3)]
+10:04:30-621299 INFO     Merge: seed=1676172106 hdr="tmp/1726149866-hdr.png" ldr="tmp/1726149866-ldr.png" json="None" time=3.83 total-steps=28 its=21.91
+10:04:30-622190 INFO     HDR end
 ```
 
 ## Note
