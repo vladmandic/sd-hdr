@@ -5,10 +5,10 @@
 setuptools==69.5.1
 packaging==24.0
 rich
-opencv-python
 
-# linters
-ruff
+# image
+opencv-python
+PiDNG
 
 # torch
 torch>=2.4.0
@@ -19,3 +19,6 @@ diffusers
 transformers
 accelerate
 peft
+
+# linters
+ruff

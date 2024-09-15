@@ -7,8 +7,10 @@ import cv2
 import numpy as np
 import torch
 import diffusers
+import accelerate
 from app.logger import log
 from app.utils import calculate_statistics
+from app.dng import write_dng
 
 
 pipe: diffusers.StableDiffusionXLPipeline = None
@@ -77,8 +79,11 @@ def load(args):
     torch.backends.cuda.enable_mem_efficient_sdp(True)
     torch.backends.cuda.enable_math_sdp(True)
     torch.backends.cudnn.deterministic = True
-    # os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
-    device = torch.device(args.device)
+    if args.device == 'auto':
+        accelerator = accelerate.Accelerator()
+        device = accelerator.device
+    else:
+        device = torch.device(args.device)
     generator = torch.Generator(device=device)
     if not args.model.lower().endswith('.safetensors'):
         args.model += '.safetensors'
@@ -217,6 +222,7 @@ def run(args, prompt):
                 its = len(images) * total_steps / (t2 - t0)
                 name_ldr = os.path.join(args.output, f'{ts}-ldr.png') if args.ldr else None
                 name_hdr = os.path.join(args.output, f'{ts}-hdr.png') if args.hdr else None
+                name_dng = os.path.join(args.output, f'{ts}.dng') if args.dng else None
                 name_json = os.path.join(args.output, f'{ts}.json') if args.json else None
                 dct = args.__dict__.copy()
                 dct['prompt'] = prompt
@@ -227,10 +233,12 @@ def run(args, prompt):
                     cv2.imwrite(name_ldr, ldr)
                 if args.hdr:
                     cv2.imwrite(name_hdr, hdr)
+                if args.dng:
+                    write_dng(name_dng, hdr, dct)
                 if args.json:
                     with open(name_json, 'w', encoding='utf8') as f:
                         f.write(json.dumps(dct, indent=4))
-                log.info(f'Merge: seed={seed} hdr="{name_hdr}" ldr="{name_ldr}" json="{name_json}" time={t2-t0:.2f} total-steps={total_steps} its={its:.2f}')
+                log.info(f'Merge: seed={seed} dng="{name_dng}" hdr="{name_hdr}" ldr="{name_ldr}" json="{name_json}" time={t2-t0:.2f} total-steps={total_steps} its={its:.2f}')
                 log.debug(f'Stats: hdr={dct["hdr"]} ldr={dct["ldr"]}')
             except cv2.error as e:
                 log.error(f'OpenCV: shapes={[img.shape for img in images]} dtypes={[img.dtype for img in images]} {e}')
