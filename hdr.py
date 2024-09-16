@@ -6,7 +6,6 @@ import logging
 import platform
 import argparse
 from app.logger import log
-import app.pipeline
 
 
 def load_prompts(prompts_file):
@@ -27,12 +26,11 @@ if __name__ == '__main__':
     parser.add_argument('--sampler', type=str, default='EulerAncestralDiscreteScheduler', help='sd sampler')
     parser.add_argument('--prompts', type=str, required=True, help='prompts file')
     parser.add_argument('--output', type=str, required=True, help='output folder')
+    parser.add_argument('--format', type=str, required=False, default='all', choices=['png', 'hdr', 'dng', 'tiff', 'all'], help='hdr file format')
     parser.add_argument('--exp', type=float, default=1.0, help='exposure correction')
     parser.add_argument('--timestep', type=int, default=200, help='correction timestep')
     parser.add_argument('--save', action='store_true', help='save interim images')
-    parser.add_argument('--hdr', action='store_true', help='create 16bpc hdr png image')
     parser.add_argument('--ldr', action='store_true', help='create 8bpc hdr png image')
-    parser.add_argument('--dng', action='store_true', help='create 16bpc dng image')
     parser.add_argument('--json', action='store_true', help='save params to json')
     parser.add_argument('--debug', action='store_true', help='debug log')
     parser.add_argument('--offload', action='store_true', help='offload model components')
@@ -45,6 +43,9 @@ if __name__ == '__main__':
 
     prompts = load_prompts(args.prompts)
     os.makedirs(args.output, exist_ok=True)
+    os.environ["OPENCV_IO_ENABLE_OPENEXR"]="1"
+
+    import app.pipeline
     app.pipeline.load(args)
     for i, prompt in enumerate(prompts):
         if len(prompt) == 0:

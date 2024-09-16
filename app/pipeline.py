@@ -1,6 +1,5 @@
 import os
 import time
-import json
 import random
 import inspect
 import cv2
@@ -10,7 +9,7 @@ import diffusers
 import accelerate
 from app.logger import log
 from app.utils import calculate_statistics
-from app.dng import write_dng
+from app.image import save
 
 
 pipe: diffusers.StableDiffusionXLPipeline = None
@@ -211,37 +210,24 @@ def run(args, prompt):
                 cv2.imwrite(name, image)
                 log.debug(f'Image: i={iteration+1}/{iterations} seed={seed} shape={image.shape} name="{name}" time={t2-t1:.2f} stats={calculate_statistics(image)}')
 
-        if args.ldr or args.hdr:
-            try:
-                align = cv2.createAlignMTB()
-                align.process(images, images)
-                merge = cv2.createMergeMertens()
-                hdr = merge.process(images)
-                ldr = np.clip(hdr * 255, 0, 255).astype(np.uint8)
-                hdr = np.clip(hdr * 65535, 0, 65535).astype(np.uint16)
-                its = len(images) * total_steps / (t2 - t0)
-                name_ldr = os.path.join(args.output, f'{ts}-ldr.png') if args.ldr else None
-                name_hdr = os.path.join(args.output, f'{ts}-hdr.png') if args.hdr else None
-                name_dng = os.path.join(args.output, f'{ts}.dng') if args.dng else None
-                name_json = os.path.join(args.output, f'{ts}.json') if args.json else None
-                dct = args.__dict__.copy()
-                dct['prompt'] = prompt
-                dct['seed'] = seed
-                dct['ldr'] = calculate_statistics(ldr)
-                dct['hdr'] = calculate_statistics(hdr)
-                if args.ldr:
-                    cv2.imwrite(name_ldr, ldr)
-                if args.hdr:
-                    cv2.imwrite(name_hdr, hdr)
-                if args.dng:
-                    write_dng(name_dng, hdr, dct)
-                if args.json:
-                    with open(name_json, 'w', encoding='utf8') as f:
-                        f.write(json.dumps(dct, indent=4))
-                log.info(f'Merge: seed={seed} dng="{name_dng}" hdr="{name_hdr}" ldr="{name_ldr}" json="{name_json}" time={t2-t0:.2f} total-steps={total_steps} its={its:.2f}')
-                log.debug(f'Stats: hdr={dct["hdr"]} ldr={dct["ldr"]}')
-            except cv2.error as e:
-                log.error(f'OpenCV: shapes={[img.shape for img in images]} dtypes={[img.dtype for img in images]} {e}')
-                raise
+        try:
+            align = cv2.createAlignMTB()
+            align.process(images, images)
+            merge = cv2.createMergeMertens()
+            raw = merge.process(images) # fp32 0..1
+            ldr = np.clip(raw * 255, 0, 255).astype(np.uint8) # uint8 0..255
+            hdr = np.clip(raw * 65535, 0, 65535).astype(np.uint16) # uint16 0..65535
+            its = len(images) * total_steps / (t2 - t0)
+            dct = args.__dict__.copy()
+            dct['prompt'] = prompt
+            dct['seed'] = seed
+            dct['ldr'] = calculate_statistics(ldr)
+            dct['hdr'] = calculate_statistics(hdr)
+            save(args, raw, hdr, ldr, dct, ts)
+            log.info(f'Merge: seed={seed} format="{args.format}" time={t2-t0:.2f} total-steps={total_steps} its={its:.2f}')
+            log.debug(f'Stats: hdr={dct["hdr"]} ldr={dct["ldr"]}')
+        except cv2.error as e:
+            log.error(f'OpenCV: shapes={[img.shape for img in images]} dtypes={[img.dtype for img in images]} {e}')
+            raise
     mem = dict(torch.cuda.memory_stats())
     log.debug(f'Memory: peak={mem["active_bytes.all.peak"] / 1e9:.2f} retries={mem["num_alloc_retries"]} oom={mem["num_ooms"]}')

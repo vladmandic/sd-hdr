@@ -7,7 +7,7 @@ packaging==24.0
 rich
 
 # image
-opencv-python
+opencv-contrib-python-headless
 PiDNG
 
 # torch
