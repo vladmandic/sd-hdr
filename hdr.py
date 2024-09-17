@@ -25,6 +25,7 @@ if __name__ == '__main__':
     parser.add_argument('--cfg', type=float, default=7.0, help='cfg scale')
     parser.add_argument('--sampler', type=str, default='EulerAncestralDiscreteScheduler', help='sd sampler')
     parser.add_argument('--prompts', type=str, required=True, help='prompts file')
+    parser.add_argument('--negative_prompt', type=str, default="", help="Negative prompt to guide the model away from certain features")
     parser.add_argument('--output', type=str, required=True, help='output folder')
     parser.add_argument('--format', type=str, required=False, default='all', choices=['png', 'hdr', 'dng', 'tiff', 'all'], help='hdr file format')
     parser.add_argument('--exp', type=float, default=1.0, help='exposure correction')

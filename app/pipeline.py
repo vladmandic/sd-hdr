@@ -114,21 +114,22 @@ def load(args):
     set_sampler(args)
 
 
-def encode_prompt(prompt):
+def encode_prompt(prompt, negative_prompt=None, do_classifier_free_guidance=False):
     tokens = pipe.tokenizer(prompt)['input_ids']
     (
         prompt_embeds,
-        _negative_prompt_embeds,
+        negative_prompt_embeds,
         pooled_prompt_embeds,
-        _negative_pooled_prompt_embeds,
+        negative_pooled_prompt_embeds,
     ) = pipe.encode_prompt(
         prompt=prompt,
+        negative_prompt=negative_prompt,
         device=device,
         num_images_per_prompt=1,
-        do_classifier_free_guidance=True,
+        do_classifier_free_guidance=do_classifier_free_guidance,
         clip_skip=0,
     )
-    return tokens, prompt_embeds.to(device), pooled_prompt_embeds.to(device)
+    return tokens, prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds
 
 
 def callback(p, step: int, ts: int, kwargs: dict): # pylint: disable=unused-argument
@@ -172,15 +173,26 @@ def run(args, prompt):
     torch.cuda.reset_peak_memory_stats()
     latent = None
     total_steps = 0
-    tokens, embeds, pooled = encode_prompt(prompt)
+
+    # Determine if classifier-free guidance is needed
+    do_cfg = args.cfg > 1.0
+
+    tokens, prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds = encode_prompt(
+        prompt,
+        negative_prompt=args.negative_prompt,
+        do_classifier_free_guidance=do_cfg,
+    )
+    
     seed = args.seed if args.seed >= 0 else int(random.randrange(4294967294))
     custom_timesteps = None
-    log.info(f'Generate: prompt="{prompt}" tokens={len(tokens)} seed={seed}')
+    log.info(f'Generate: prompt="{prompt}" negative_prompt="{args.negative_prompt}" tokens={len(tokens)} seed={seed}')
     kwargs = {
         'width': args.width,
         'height': args.height,
-        'prompt_embeds': embeds,
-        'pooled_prompt_embeds': pooled,
+        'prompt_embeds': prompt_embeds,
+        'negative_prompt_embeds': negative_prompt_embeds,
+        'pooled_prompt_embeds': pooled_prompt_embeds,
+        'negative_pooled_prompt_embeds': negative_pooled_prompt_embeds,
         'guidance_scale': args.cfg,
         'num_inference_steps': args.steps,
         'num_images_per_prompt': 1,
