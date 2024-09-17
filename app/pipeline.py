@@ -8,7 +8,7 @@ import torch
 import diffusers
 import accelerate
 from PIL import Image
-from app.logger import log
+from app.logger import log, trace
 from app.utils import calculate_statistics
 from app.image import save
 
@@ -18,12 +18,13 @@ dtype = None
 device = None
 generator = None # torch generator
 iterations = 3 # run dark/normal/light
-timestep = 0 # from args.timestep
-exp = 0.0 # from args.exp
 iteration = 0 # counter
 latent = None # saved latent
 custom_timesteps = None # custom timesteps
 total_steps = 0 # counter for total steps
+exp = 1.0 # exposure correction
+timestep = 200 # correction timestep
+trace()
 
 
 def set_sampler(args):
@@ -58,10 +59,8 @@ def patch():
     diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl.retrieve_timesteps = retrieve_timesteps
 
 
-def load(args, img2img: bool):
-    global pipe, dtype, device, generator, exp, timestep # pylint: disable=global-statement
-    exp = args.exp
-    timestep = args.timestep
+def load(args):
+    global pipe, dtype, device, generator # pylint: disable=global-statement
     if args.dtype == 'fp16' or args.dtype == 'float16':
         dtype = torch.float16
     elif args.dtype == 'bf16' or args.dtype == 'bfloat16':
@@ -101,8 +100,7 @@ def load(args, img2img: bool):
         'add_watermarker': False,
         'force_upcast': False
     }
-    cls = diffusers.StableDiffusionXLImg2ImgPipeline if img2img else diffusers.StableDiffusionXLPipeline
-    pipe = cls.from_single_file(args.model, **kwargs).to(dtype=dtype, device=device)
+    pipe = diffusers.StableDiffusionXLPipeline.from_single_file(args.model, **kwargs).to(dtype=dtype, device=device)
     pipe.set_progress_bar_config(disable=True)
     pipe.fuse_qkv_projections()
     pipe.unet.eval()
@@ -110,7 +108,7 @@ def load(args, img2img: bool):
     if args.offload:
         pipe.enable_model_cpu_offload(device=device)
     t1 = time.time()
-    log.info(f'Loaded: model="{args.model}" pipeline={cls.__name__} time={t1-t0:.2f}')
+    log.info(f'Loaded: model="{args.model}" time={t1-t0:.2f}')
     log.debug(f'Memory: allocated={torch.cuda.memory_allocated() / 1e9:.2f} cached={torch.cuda.memory_reserved() / 1e9:.2f}')
     log.debug(f'Model: unet="{pipe.unet.dtype}/{pipe.unet.device}" vae="{pipe.vae.dtype}/{pipe.vae.device}" te1="{pipe.text_encoder.dtype}/{pipe.text_encoder.device}" te2="{pipe.text_encoder_2.device}/{pipe.text_encoder_2.device}"')
     set_sampler(args)
@@ -168,17 +166,18 @@ def decode(latents):
 
 
 def run(args, prompt, negative, init):
+    global pipe, iteration, latent, custom_timesteps, total_steps, exp, timestep  # pylint: disable=global-statement
+    exp = args.exp
+    timestep = args.timestep
     if pipe is None:
         log.error('Model: not loaded')
         return
-    global iteration, latent, custom_timesteps, total_steps  # pylint: disable=global-statement
     torch.cuda.reset_peak_memory_stats()
     latent = None
     total_steps = 0
 
     # Determine if classifier-free guidance is needed
     do_cfg = args.cfg > 1.0
-
     tokens, prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds = encode_prompt(
         prompt=prompt,
         negative_prompt=negative,
@@ -200,22 +199,31 @@ def run(args, prompt, negative, init):
         'return_dict': False,
         'callback_on_step_end': callback,
     }
-    if pipe.__class__.__name__ == 'StableDiffusionXLImg2ImgPipeline':
+
+    is_img2img = False
+    if init is not None:
         try:
-            img = Image.open(init)
+            img = Image.open(init) if isinstance(init, str) else init
+            img = img.convert('RGB')
+            if img.width == 0 or img.height == 0:
+                raise ValueError('invalid image')
             if args.width > 0 and args.height > 0:
                 img = img.resize((args.width, args.height))
-            kwargs['image'] = img
-            kwargs['strength'] = args.strength
-            kwargs['num_inference_steps'] = min(int(args.steps // args.strength), 99)
+            is_img2img = True
         except Exception as e:
             log.error(f'Image: file="{init}" {e}')
-            return
+    if is_img2img:
+        kwargs['image'] = img
+        kwargs['strength'] = args.strength
+        kwargs['num_inference_steps'] = min(int(args.steps // args.strength), 99)
+        pipe = diffusers.AutoPipelineForImage2Image.from_pipe(pipe)
     else:
         img = None
         kwargs['width'] = args.width if args.width > 0 else 1024
         kwargs['height'] = args.height if args.width > 0 else 1024
-    log.info(f'Generate: prompt="{prompt}" negative="{negative}" image="{img}" tokens={len(tokens)} seed={seed} steps={kwargs["num_inference_steps"]}')
+        pipe = diffusers.AutoPipelineForText2Image.from_pipe(pipe)
+    pipe.set_progress_bar_config(disable=True)
+    log.info(f'Generate: pipeline={pipe.__class__.__name__} prompt="{prompt}" negative="{negative}" image="{img}" tokens={len(tokens)} seed={seed} steps={kwargs["num_inference_steps"]}')
     with torch.inference_mode():
         ts = int(time.time())
         images = []
@@ -230,6 +238,7 @@ def run(args, prompt, negative, init):
             custom_timesteps = custom_timesteps[custom_timesteps < timestep] # only use timesteps below ts threshold for future runs
             image = decode(latents)
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            yield image
             images.append(image)
             t2 = time.time()
             if args.save:
@@ -243,13 +252,14 @@ def run(args, prompt, negative, init):
             merge = cv2.createMergeMertens()
             raw = merge.process(images) # fp32 0..1
             ldr = np.clip(raw * 255, 0, 255).astype(np.uint8) # uint8 0..255
+            yield ldr
             hdr = np.clip(raw * 65535, 0, 65535).astype(np.uint16) # uint16 0..65535
             its = len(images) * total_steps / (t2 - t0)
             dct = args.__dict__.copy()
             dct.update({
                 'pipeline': pipe.__class__.__name__,
                 'model': os.path.basename(dct['model']),
-                'image': os.path.basename(init),
+                'image': os.path.basename(init) if isinstance(init, str) else 'upload',
                 'width': raw.shape[1],
                 'height': raw.shape[0],
                 'prompt': prompt,

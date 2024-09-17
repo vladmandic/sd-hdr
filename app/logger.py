@@ -3,12 +3,6 @@ import sys
 import logging
 import warnings
 import traceback
-
-from importlib.util import find_spec
-if find_spec('rich') is None:
-    print('HDR error: invalid venv')
-    sys.exit(1)
-
 from rich.theme import Theme
 from rich.logging import RichHandler
 from rich.console import Console
