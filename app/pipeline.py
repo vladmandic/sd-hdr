@@ -7,6 +7,7 @@ import numpy as np
 import torch
 import diffusers
 import accelerate
+from PIL import Image
 from app.logger import log
 from app.utils import calculate_statistics
 from app.image import save
@@ -57,7 +58,7 @@ def patch():
     diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl.retrieve_timesteps = retrieve_timesteps
 
 
-def load(args):
+def load(args, img2img: bool):
     global pipe, dtype, device, generator, exp, timestep # pylint: disable=global-statement
     exp = args.exp
     timestep = args.timestep
@@ -100,7 +101,8 @@ def load(args):
         'add_watermarker': False,
         'force_upcast': False
     }
-    pipe = diffusers.StableDiffusionXLPipeline.from_single_file(args.model, **kwargs).to(dtype=dtype, device=device)
+    cls = diffusers.StableDiffusionXLImg2ImgPipeline if img2img else diffusers.StableDiffusionXLPipeline
+    pipe = cls.from_single_file(args.model, **kwargs).to(dtype=dtype, device=device)
     pipe.set_progress_bar_config(disable=True)
     pipe.fuse_qkv_projections()
     pipe.unet.eval()
@@ -108,7 +110,7 @@ def load(args):
     if args.offload:
         pipe.enable_model_cpu_offload(device=device)
     t1 = time.time()
-    log.info(f'Loaded: model="{args.model}" time={t1-t0:.2f}')
+    log.info(f'Loaded: model="{args.model}" pipeline={cls.__name__} time={t1-t0:.2f}')
     log.debug(f'Memory: allocated={torch.cuda.memory_allocated() / 1e9:.2f} cached={torch.cuda.memory_reserved() / 1e9:.2f}')
     log.debug(f'Model: unet="{pipe.unet.dtype}/{pipe.unet.device}" vae="{pipe.vae.dtype}/{pipe.vae.device}" te1="{pipe.text_encoder.dtype}/{pipe.text_encoder.device}" te2="{pipe.text_encoder_2.device}/{pipe.text_encoder_2.device}"')
     set_sampler(args)
@@ -165,7 +167,7 @@ def decode(latents):
     return image
 
 
-def run(args, prompt):
+def run(args, prompt, negative, init):
     if pipe is None:
         log.error('Model: not loaded')
         return
@@ -178,17 +180,14 @@ def run(args, prompt):
     do_cfg = args.cfg > 1.0
 
     tokens, prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds = encode_prompt(
-        prompt,
-        negative_prompt=args.negative_prompt,
+        prompt=prompt,
+        negative_prompt=negative,
         do_classifier_free_guidance=do_cfg,
     )
-    
+
     seed = args.seed if args.seed >= 0 else int(random.randrange(4294967294))
     custom_timesteps = None
-    log.info(f'Generate: prompt="{prompt}" negative_prompt="{args.negative_prompt}" tokens={len(tokens)} seed={seed}')
     kwargs = {
-        'width': args.width,
-        'height': args.height,
         'prompt_embeds': prompt_embeds,
         'negative_prompt_embeds': negative_prompt_embeds,
         'pooled_prompt_embeds': pooled_prompt_embeds,
@@ -201,6 +200,22 @@ def run(args, prompt):
         'return_dict': False,
         'callback_on_step_end': callback,
     }
+    if pipe.__class__.__name__ == 'StableDiffusionXLImg2ImgPipeline':
+        try:
+            img = Image.open(init)
+            if args.width > 0 and args.height > 0:
+                img = img.resize((args.width, args.height))
+            kwargs['image'] = img
+            kwargs['strength'] = args.strength
+            kwargs['num_inference_steps'] = min(int(args.steps // args.strength), 99)
+        except Exception as e:
+            log.error(f'Image: file="{init}" {e}')
+            return
+    else:
+        img = None
+        kwargs['width'] = args.width if args.width > 0 else 1024
+        kwargs['height'] = args.height if args.width > 0 else 1024
+    log.info(f'Generate: prompt="{prompt}" negative="{negative}" image="{img}" tokens={len(tokens)} seed={seed} steps={kwargs["num_inference_steps"]}')
     with torch.inference_mode():
         ts = int(time.time())
         images = []
@@ -231,10 +246,18 @@ def run(args, prompt):
             hdr = np.clip(raw * 65535, 0, 65535).astype(np.uint16) # uint16 0..65535
             its = len(images) * total_steps / (t2 - t0)
             dct = args.__dict__.copy()
-            dct['prompt'] = prompt
-            dct['seed'] = seed
-            dct['ldr'] = calculate_statistics(ldr)
-            dct['hdr'] = calculate_statistics(hdr)
+            dct.update({
+                'pipeline': pipe.__class__.__name__,
+                'model': os.path.basename(dct['model']),
+                'image': os.path.basename(init),
+                'width': raw.shape[1],
+                'height': raw.shape[0],
+                'prompt': prompt,
+                'negative': negative,
+                'seed': seed,
+                'ldr': calculate_statistics(ldr),
+                'hdr': calculate_statistics(hdr),
+            })
             save(args, raw, hdr, ldr, dct, ts)
             log.info(f'Merge: seed={seed} format="{args.format}" time={t2-t0:.2f} total-steps={total_steps} its={its:.2f}')
             log.debug(f'Stats: hdr={dct["hdr"]} ldr={dct["ldr"]}')

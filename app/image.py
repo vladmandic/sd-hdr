@@ -33,20 +33,20 @@ def save(args, raw, hdr, ldr, dct, ts):
             cv2.imwrite(fn, hdr)
         except Exception as e:
             log.error(f'Save: type=hdr format=tif file="{fn}" {e}')
-    if args.format == 'exr' or args.format == 'all':
-        fn = os.path.join(args.output, f'{ts}.exr')
-        try:
-            log.warning(f'Save: type=hdr format=exr file="{fn}" exr is broken in current cv2')
-            cv2.imwrite(fn, hdr)
-        except Exception as e:
-            log.error(f'Save: type=hdr format=exr file="{fn}" {e}')
-    if args.format == 'dng' or args.format == 'all':
+    if args.format == 'dng': # or args.format == 'all': # dont include in all
         fn = os.path.join(args.output, f'{ts}.dng')
         try:
             log.warning(f'Save: type=hdr format=dng file="{fn}" dng is not fully compliant')
             write_dng(fn, hdr, dct)
         except Exception as e:
             log.error(f'Save: type=hdr format=dng file="{fn}" {e}')
+    if args.format == 'exr': # or args.format == 'all': # dont include in all
+        fn = os.path.join(args.output, f'{ts}.exr')
+        try:
+            log.warning(f'Save: type=hdr format=exr file="{fn}" exr is broken in current cv2')
+            cv2.imwrite(fn, hdr)
+        except Exception as e:
+            log.error(f'Save: type=hdr format=exr file="{fn}" {e}')
     if args.json:
         fn = os.path.join(args.output, f'{ts}.json') if args.json else None
         log.info(f'Save: type=json file="{fn}"')
@@ -54,7 +54,7 @@ def save(args, raw, hdr, ldr, dct, ts):
             f.write(json.dumps(dct, indent=4))
 
 
-def write_dng(name_dng: str, hdr, dct = {}):
+def write_dng(name_dng: str, hdr, dct = {}): # noqa: B006
     from pidng.core import DNGBASE, DNGTags, Tag
     from pidng.defs import Orientation, PreviewColorSpace, PhotometricInterpretation
     rgb = cv2.cvtColor(hdr, cv2.COLOR_BGR2RGB)
