@@ -8,6 +8,7 @@ rich
 
 # image
 opencv-contrib-python-headless
+Pillow
 PiDNG
 
 # torch
