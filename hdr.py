@@ -43,6 +43,7 @@ def init():
     parser.add_argument('--output', type=str, default="output", help='output folder')
     parser.add_argument('--format', type=str, required=False, default='all', choices=['png', 'hdr', 'dng', 'tiff', 'all'], help='hdr file format')
     parser.add_argument('--exp', type=float, default=1.0, help='exposure correction')
+    parser.add_argument('--gamma', type=float, default=2.2, help='gamma adjustment for dng/hdr')
     parser.add_argument('--timestep', type=int, default=200, help='correction timestep')
     parser.add_argument('--save', action='store_true', help='save interim images')
     parser.add_argument('--ldr', action='store_true', help='create 8bpc hdr png image')

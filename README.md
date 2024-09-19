@@ -47,6 +47,7 @@ Wrappers:
   --output OUTPUT       output folder
   --format FORMAT       hdr file format: png,hdr,dng,tiff,all
   --exp EXP             exposure correction
+  --gamma GAMMA         gamma adjustment for dng/hdr
   --timestep TIMESTEP   correction timestep
   --save                save interim images
   --ldr                 create 8bpc hdr png image
@@ -76,6 +77,4 @@ Based on [streamlit](https://streamlit.io/) framework which is not installed by 
 - Notes: if input image(s) is present, it will run SDXL img2img pipeline, otherwise it will run text2img pipeline  
 - Prompt, negative, image can be a string value or point to file which contains one line per entry  
 - Created filename is simple epoch timestamp in output folder  
-- Output formats:
-  - Pass: png/hdr/tiff
-  - Fail: exr/dng
+- Output formats: PNG / HDR / TIFF / DNG

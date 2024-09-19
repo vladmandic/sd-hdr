@@ -268,7 +268,7 @@ def run(args, prompt, negative, init):
                 'ldr': calculate_statistics(ldr),
                 'hdr': calculate_statistics(hdr),
             })
-            save(args, raw, hdr, ldr, dct, ts)
+            save(args, hdr, ldr, dct, ts)
             log.info(f'Merge: seed={seed} format="{args.format}" time={t2-t0:.2f} total-steps={total_steps} its={its:.2f}')
             log.debug(f'Stats: hdr={dct["hdr"]} ldr={dct["ldr"]}')
         except cv2.error as e:

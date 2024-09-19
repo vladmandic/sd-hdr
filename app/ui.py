@@ -34,6 +34,7 @@ def start(_args):
         args.width = st.session_state.width
         args.height = st.session_state.height
         args.exp = st.session_state.exp
+        args.gamma = st.session_state.gamma
         args.timestep = st.session_state.timestep
         args.steps = st.session_state.steps
         args.seed = st.session_state.seed
@@ -64,6 +65,7 @@ def start(_args):
         st.slider('height', key='height', min_value=256, max_value=4096, value=args.height, step=8)
         with st.expander('hdr options'):
             st.slider('exposure compensation', key='exp', min_value=0.0, max_value=3.0, value=args.exp, step=0.1)
+            st.slider('gamma adjust', key='gamma', min_value=0.1, max_value=5.0, value=args.gamma, step=0.1)
             st.number_input('timestep', key='timestep', value=args.timestep)
         with st.expander('generate options'):
             st.slider('steps', key='steps', min_value=1, max_value=99, value=args.steps, step=1)
