@@ -2,7 +2,7 @@
 --extra-index-url https://download.pytorch.org/whl/cu124
 
 # standard
-setuptools==69.5.1
+setuptools==78.1.1
 packaging==24.0
 rich
 
